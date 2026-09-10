@@ -1,15 +1,17 @@
 package com.example.screencapture
 
-import android.Manifest
 import android.app.Activity
+import android.app.AppOpsManager
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
+import android.os.Process
+import android.provider.DocumentsContract
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -39,11 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import java.text.DateFormat
-import java.util.Date
 
-data class TargetApp(val label: String, val packageName: String)
-data class ScreenshotItem(val uri: Uri, val name: String, val createdAt: Long)
+data class TargetApp(val label: String, val packageName: String, val lastUsedAt: Long)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,13 +55,8 @@ class MainActivity : ComponentActivity() {
     private fun CaptureScreen() {
         val context = this
         var pickerOpen by remember { mutableStateOf(false) }
-        var folderOpen by remember { mutableStateOf(false) }
         var selected by remember { mutableStateOf<TargetApp?>(null) }
-        var status by remember { mutableStateOf("選取要擷取的 App") }
-        val imagePermission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
-        val folderPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) folderOpen = true else status = "需要圖片讀取權限才能開啟截圖資料夾"
-        }
+        var status by remember { mutableStateOf("選取最近使用的 App") }
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val target = selected
@@ -81,67 +75,78 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    Text("先選擇目標 App，再由 Android 的系統視窗授權擷取。", style = MaterialTheme.typography.bodyLarge)
+                    Text("從最近使用的 App 中選擇目標，再由 Android 的系統視窗授權擷取。", style = MaterialTheme.typography.bodyLarge)
                     Text(selected?.label ?: "尚未選擇 App", style = MaterialTheme.typography.titleLarge)
-                    Button(onClick = { pickerOpen = true }, modifier = Modifier.fillMaxWidth()) { Text("選取 App") }
                     Button(
                         onClick = {
-                            if (selected == null) status = "請先選取目標 App"
-                            else permissionLauncher.launch(projectionManager.createScreenCaptureIntent())
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = selected != null
-                    ) { Text("擷取螢幕畫面") }
-                    Button(
-                        onClick = {
-                            if (ContextCompat.checkSelfPermission(context, imagePermission) == PackageManager.PERMISSION_GRANTED) folderOpen = true
-                            else folderPermissionLauncher.launch(imagePermission)
+                            if (hasUsageAccess()) pickerOpen = true
+                            else {
+                                status = "請在系統設定允許「使用情況存取」，才能顯示最近使用的 App"
+                                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("開啟截圖資料夾") }
+                    ) { Text("選取最近使用的 App") }
+                    Button(
+                        onClick = {
+                            if (selected == null) status = "請先選取最近使用的 App"
+                            else permissionLauncher.launch(projectionManager.createScreenCaptureIntent())
+                        },
+                        modifier = Modifier.fillMaxWidth(), enabled = selected != null
+                    ) { Text("擷取螢幕畫面") }
+                    Button(onClick = { openSystemScreenshotFolder() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("直接開啟截圖資料夾")
+                    }
                     Text(status, style = MaterialTheme.typography.bodyMedium)
                     Text("擷取期間會暫時將系統音效設為 0%，完成後立即還原。若裝置或地區強制相機快門聲，系統政策仍可能優先。", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (pickerOpen) {
-                AppPicker(launchableApps(), { pickerOpen = false }) { app ->
+                AppPicker(recentApps(), { pickerOpen = false }) { app ->
                     selected = app; pickerOpen = false; status = "已選取 ${app.label}"
                 }
             }
-            if (folderOpen) ScreenshotFolder(screenshots(), { folderOpen = false }) { openScreenshot(it.uri) }
         }
     }
 
-    private fun launchableApps(): List<TargetApp> {
-        val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(query, 0)
-            .map { TargetApp(it.loadLabel(packageManager).toString(), it.activityInfo.packageName) }
-            .filter { it.packageName != packageName }.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
+    private fun hasUsageAccess(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        return appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName) == AppOpsManager.MODE_ALLOWED
     }
 
-    private fun screenshots(): List<ScreenshotItem> {
-        val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.DATE_ADDED)
-        return contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection,
-            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?", arrayOf("Pictures/Screenshot Capture/%"),
-            "${MediaStore.Images.Media.DATE_ADDED} DESC"
-        )?.use { cursor ->
-            val id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-            val date = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-            buildList {
-                while (cursor.moveToNext()) {
-                    add(ScreenshotItem(Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cursor.getLong(id).toString()), cursor.getString(name), cursor.getLong(date) * 1000))
-                }
+    private fun recentApps(): List<TargetApp> {
+        val manager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val events = manager.queryEvents(System.currentTimeMillis() - RECENT_WINDOW_MILLIS, System.currentTimeMillis())
+        val latestUse = mutableMapOf<String, Long>()
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED && event.packageName != packageName) {
+                latestUse[event.packageName] = event.timeStamp
             }
-        } ?: emptyList()
+        }
+        return latestUse.mapNotNull { (packageName, lastUsedAt) ->
+            if (packageManager.getLaunchIntentForPackage(packageName) == null) null
+            else runCatching {
+                TargetApp(packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString(), packageName, lastUsedAt)
+            }.getOrNull()
+        }.sortedByDescending { it.lastUsedAt }
     }
 
-    private fun openScreenshot(uri: Uri) {
-        startActivity(Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "image/png")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        })
+    private fun openSystemScreenshotFolder() {
+        val folder = DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_PROVIDER, "primary:Pictures/Screenshot Capture")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+            putExtra(DocumentsContract.EXTRA_INITIAL_URI, folder)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        startActivity(intent)
+    }
+
+    companion object {
+        private const val RECENT_WINDOW_MILLIS = 24 * 60 * 60 * 1000L
+        private const val EXTERNAL_STORAGE_PROVIDER = "com.android.externalstorage.documents"
     }
 }
 
@@ -149,39 +154,19 @@ class MainActivity : ComponentActivity() {
 private fun AppPicker(apps: List<TargetApp>, onDismiss: () -> Unit, onPick: (TargetApp) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("選取 App") },
+        title = { Text("最近使用的 App") },
         text = {
-            LazyColumn {
+            if (apps.isEmpty()) Text("過去 24 小時沒有可擷取的最近使用 App。")
+            else LazyColumn {
                 items(apps) { app ->
                     Row(Modifier.fillMaxWidth().clickable { onPick(app) }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(app.label, modifier = Modifier.weight(1f)); Spacer(Modifier.width(12.dp)); Text(app.packageName, style = MaterialTheme.typography.bodySmall)
+                        Text(app.label, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(12.dp))
+                        Text(app.packageName, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("取消") } }
-    )
-}
-
-@androidx.compose.runtime.Composable
-private fun ScreenshotFolder(screenshots: List<ScreenshotItem>, onDismiss: () -> Unit, onOpen: (ScreenshotItem) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("截圖資料夾") },
-        text = {
-            if (screenshots.isEmpty()) Text("尚未儲存任何截圖。")
-            else LazyColumn {
-                items(screenshots) { screenshot ->
-                    Row(Modifier.fillMaxWidth().clickable { onOpen(screenshot) }.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(screenshot.name)
-                            Text(DateFormat.getDateTimeInstance().format(Date(screenshot.createdAt)), style = MaterialTheme.typography.bodySmall)
-                        }
-                        Text("開啟", style = MaterialTheme.typography.labelLarge)
-                    }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = onDismiss) { Text("關閉") } }
     )
 }
