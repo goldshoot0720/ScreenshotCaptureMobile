@@ -3,6 +3,7 @@
 android/.gradle/
 android/build/
 android/app/build/
+android/*.log
 local.properties
 
 # iOS / Xcode
