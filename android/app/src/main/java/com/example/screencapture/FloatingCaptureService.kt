@@ -33,6 +33,7 @@ class FloatingCaptureService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var windowManager: WindowManager
     private var bubble: TextView? = null
+    private var returnBubble: TextView? = null
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
@@ -58,17 +59,25 @@ class FloatingCaptureService : Service() {
     private fun showBubble() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         bubble = TextView(this).apply {
-            text = "擷取"; setTextColor(Color.WHITE); textSize = 14f; gravity = Gravity.CENTER; contentDescription = "擷取目前畫面"
+            text = "擷取"; setTextColor(Color.WHITE); textSize = 14f; gravity = Gravity.CENTER; contentDescription = "擷取整個螢幕"
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(236, 72, 153)); setStroke(dp(2), Color.WHITE) }
             elevation = dp(8).toFloat(); setOnClickListener { capture() }
         }
-        val params = WindowManager.LayoutParams(dp(64), dp(64), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(180) }
-        windowManager.addView(bubble, params)
+        returnBubble = TextView(this).apply {
+            text = "返回"; setTextColor(Color.WHITE); textSize = 14f; gravity = Gravity.CENTER; contentDescription = "返回螢幕擷取 App"
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(124, 58, 237)); setStroke(dp(2), Color.WHITE) }
+            elevation = dp(8).toFloat(); setOnClickListener { startActivity(Intent(this@FloatingCaptureService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
+        }
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        val captureParams = WindowManager.LayoutParams(dp(64), dp(64), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(180) }
+        val returnParams = WindowManager.LayoutParams(dp(64), dp(48), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(252) }
+        windowManager.addView(bubble, captureParams)
+        windowManager.addView(returnBubble, returnParams)
     }
 
     private fun capture() {
         if (capturing) return
-        capturing = true; bubble?.visibility = View.INVISIBLE
+        capturing = true; bubble?.visibility = View.INVISIBLE; returnBubble?.visibility = View.INVISIBLE
         handler.postDelayed({
             val image = reader?.acquireLatestImage()
             if (image == null) { restoreBubble(); return@postDelayed }
@@ -76,7 +85,7 @@ class FloatingCaptureService : Service() {
             try { save(image) } finally { image.close(); unmute(); restoreBubble() }
         }, HIDE_MILLIS)
     }
-    private fun restoreBubble() { bubble?.visibility = View.VISIBLE; capturing = false }
+    private fun restoreBubble() { bubble?.visibility = View.VISIBLE; returnBubble?.visibility = View.VISIBLE; capturing = false }
     private fun mute() { audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager; originalVolume = audio?.getStreamVolume(AudioManager.STREAM_SYSTEM); audio?.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0) }
     private fun unmute() { originalVolume?.let { audio?.setStreamVolume(AudioManager.STREAM_SYSTEM, it, 0) }; originalVolume = null }
 
@@ -94,7 +103,7 @@ class FloatingCaptureService : Service() {
     private fun shutdown() {
         if (stopping) return
         stopping = true
-        unmute(); bubble?.let { if (::windowManager.isInitialized) windowManager.removeView(it) }; bubble = null
+        unmute(); bubble?.let { if (::windowManager.isInitialized) windowManager.removeView(it) }; returnBubble?.let { if (::windowManager.isInitialized) windowManager.removeView(it) }; bubble = null; returnBubble = null
         display?.release(); reader?.close(); projection?.stop(); display = null; reader = null; projection = null
         stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }

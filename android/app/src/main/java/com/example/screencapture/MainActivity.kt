@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
     @androidx.compose.runtime.Composable
     private fun CaptureHome() {
         val context = this
-        var status by remember { mutableStateOf("啟用後，先切換至目標 App，再點粉色懸浮按鈕。") }
+        var status by remember { mutableStateOf("啟用後可切換至任何畫面；懸浮按鈕會擷取整個螢幕。") }
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
             Scaffold(topBar = { TopAppBar(title = { Text("螢幕擷取") }) }) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     Text("一按就擷取目前畫面", style = MaterialTheme.typography.headlineSmall)
-                    Text("這是本 App 的懸浮按鈕。拍攝瞬間它會自動隱藏，因此不會出現在截圖中。", style = MaterialTheme.typography.bodyLarge)
+                    Text("上方「擷取」會儲存整個螢幕；下方「返回」可回到本 App。拍攝瞬間兩個按鈕都會自動隱藏。", style = MaterialTheme.typography.bodyLarge)
                     Button(onClick = {
                         if (Settings.canDrawOverlays(context)) projectionLauncher.launch(manager.createScreenCaptureIntent())
                         else { status = "請允許「顯示在其他 App 上層」後，再點一次啟用。"; startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
