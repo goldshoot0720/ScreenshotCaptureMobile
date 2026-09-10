@@ -25,16 +25,17 @@ import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
+import android.widget.ImageView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import java.nio.ByteBuffer
 
 class FloatingCaptureService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var windowManager: WindowManager
-    private var bubble: TextView? = null
-    private var returnBubble: TextView? = null
-    private var closeBubble: TextView? = null
+    private var bubble: ImageView? = null
+    private var returnBubble: ImageView? = null
+    private var closeBubble: ImageView? = null
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
@@ -59,29 +60,26 @@ class FloatingCaptureService : Service() {
 
     private fun showBubble() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        bubble = TextView(this).apply {
-            text = "擷取"; setTextColor(Color.WHITE); textSize = 14f; gravity = Gravity.CENTER; contentDescription = "擷取整個螢幕"
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(236, 72, 153)); setStroke(dp(2), Color.WHITE) }
-            elevation = dp(8).toFloat(); setOnClickListener { capture() }
+        bubble = iconBubble(R.drawable.ic_capture, PINK, PURPLE, dp(19), "擷取整個螢幕") { capture() }
+        returnBubble = iconBubble(R.drawable.ic_return, PURPLE, INDIGO, dp(15), "返回螢幕擷取 App") {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         }
-        returnBubble = TextView(this).apply {
-            text = "返回"; setTextColor(Color.WHITE); textSize = 14f; gravity = Gravity.CENTER; contentDescription = "返回螢幕擷取 App"
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(124, 58, 237)); setStroke(dp(2), Color.WHITE) }
-            elevation = dp(8).toFloat(); setOnClickListener { startActivity(Intent(this@FloatingCaptureService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
-        }
-        closeBubble = TextView(this).apply {
-            text = "關閉"; setTextColor(Color.WHITE); textSize = 13f; gravity = Gravity.CENTER; contentDescription = "關閉懸浮擷取按鈕"
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(220, 38, 38)); setStroke(dp(2), Color.WHITE) }
-            elevation = dp(8).toFloat(); setOnClickListener { shutdown() }
-        }
-        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        val captureParams = WindowManager.LayoutParams(dp(64), dp(64), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(180) }
-        val returnParams = WindowManager.LayoutParams(dp(64), dp(48), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(252) }
-        val closeParams = WindowManager.LayoutParams(dp(64), dp(48), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, flags, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = dp(308) }
-        windowManager.addView(bubble, captureParams)
-        windowManager.addView(returnBubble, returnParams)
-        windowManager.addView(closeBubble, closeParams)
+        closeBubble = iconBubble(R.drawable.ic_close, SLATE, SLATE_DARK, dp(16), "關閉懸浮擷取按鈕") { shutdown() }
+        windowManager.addView(bubble, bubbleParams(dp(64), dp(176)))
+        windowManager.addView(returnBubble, bubbleParams(dp(52), dp(250)))
+        windowManager.addView(closeBubble, bubbleParams(dp(52), dp(312)))
     }
+
+    private fun iconBubble(icon: Int, from: Int, to: Int, inset: Int, description: String, onClick: () -> Unit) = ImageView(this).apply {
+        setImageDrawable(ContextCompat.getDrawable(this@FloatingCaptureService, icon))
+        setColorFilter(Color.WHITE); scaleType = ImageView.ScaleType.FIT_CENTER; contentDescription = description
+        background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(from, to)).apply { shape = GradientDrawable.OVAL; setStroke(dp(2), Color.argb(235, 255, 255, 255)) }
+        setPadding(inset, inset, inset, inset); elevation = dp(10).toFloat()
+        setOnClickListener { onClick() }
+    }
+
+    private fun bubbleParams(size: Int, top: Int) = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT)
+        .apply { gravity = Gravity.TOP or Gravity.END; x = dp(18); y = top }
 
     private fun capture() {
         if (capturing) return
@@ -120,10 +118,15 @@ class FloatingCaptureService : Service() {
     private fun notification(): android.app.Notification {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.capture_channel), NotificationManager.IMPORTANCE_LOW))
-        return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(android.R.drawable.ic_menu_camera).setContentTitle(getString(R.string.app_name)).setContentText("懸浮擷取按鈕已啟用").setOngoing(true).build()
+        return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(R.drawable.ic_capture).setContentTitle(getString(R.string.app_name)).setContentText("懸浮擷取按鈕已啟用").setOngoing(true).build()
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     companion object {
+        private val PINK = Color.rgb(236, 72, 153)
+        private val PURPLE = Color.rgb(124, 58, 237)
+        private val INDIGO = Color.rgb(79, 70, 229)
+        private val SLATE = Color.rgb(100, 116, 139)
+        private val SLATE_DARK = Color.rgb(51, 65, 85)
         private const val CHANNEL_ID = "floating_capture"; private const val NOTIFICATION_ID = 102; private const val HIDE_MILLIS = 250L
         private const val EXTRA_RESULT = "result"; private const val EXTRA_DATA = "data"; private const val ACTION_STOP = "stop"
         fun startIntent(context: Context, result: Int, data: Intent) = Intent(context, FloatingCaptureService::class.java).apply { putExtra(EXTRA_RESULT, result); putExtra(EXTRA_DATA, data) }
