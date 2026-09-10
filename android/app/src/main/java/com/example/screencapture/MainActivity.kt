@@ -1,9 +1,12 @@
 package com.example.screencapture
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.Settings
@@ -71,6 +74,8 @@ class MainActivity : ComponentActivity() {
                 status = "懸浮擷取按鈕已啟用"
             } else status = "未取得 Android 系統螢幕擷取授權"
         }
+        val requestProjection = { projectionLauncher.launch(manager.createScreenCaptureIntent()) }
+        val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { requestProjection() }
         MaterialTheme {
             Box(
                 Modifier
@@ -87,11 +92,11 @@ class MainActivity : ComponentActivity() {
                     Header()
                     StepsCard()
                     ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示懸浮按鈕", R.drawable.ic_capture, CaptureBrush) {
-                        if (Settings.canDrawOverlays(context)) projectionLauncher.launch(manager.createScreenCaptureIntent())
-                        else {
+                        if (!Settings.canDrawOverlays(context)) {
                             status = "請允許「顯示在其他 App 上層」後，再點一次啟用。"
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                        }
+                        } else if (needsNotificationConsent()) notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        else requestProjection()
                     }
                     ActionButton("停用懸浮擷取按鈕", "收起畫面上的懸浮按鈕", R.drawable.ic_stop, null) {
                         startService(FloatingCaptureService.stopIntent(context))
@@ -134,6 +139,7 @@ class MainActivity : ComponentActivity() {
                 Step(R.drawable.ic_shield, Purple, "先授權", "允許顯示在其他 App 上層，並同意系統螢幕擷取。")
                 Step(R.drawable.ic_touch, Pink, "再一按", "上方「擷取」存整個螢幕，下方「返回」回到本 App。")
                 Step(R.drawable.ic_bolt, Amber, "自動隱藏", "拍攝瞬間三顆懸浮按鈕都會自動隱藏，畫面乾淨。")
+                Step(R.drawable.ic_return, Purple, "可拖曳", "按住任一顆按鈕即可拖到不擋畫面的位置，存檔結果會即時提示。")
             }
         }
     }
@@ -202,6 +208,10 @@ class MainActivity : ComponentActivity() {
         }
         Spacer(Modifier.height(8.dp))
     }
+
+    /** The capture service runs in the foreground, so Android 13+ needs the notification to be allowed. */
+    private fun needsNotificationConsent() = Build.VERSION.SDK_INT >= 33 &&
+        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
 
     private fun openSystemScreenshotFolder() {
         val folder = DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_PROVIDER, "primary:Pictures/Screenshot Capture")
