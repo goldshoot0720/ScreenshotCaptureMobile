@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private fun CaptureScreen() {
         val context = this
         var pickerOpen by remember { mutableStateOf(false) }
+        var usageAccessDialogOpen by remember { mutableStateOf(false) }
         var selected by remember { mutableStateOf<TargetApp?>(null) }
         var status by remember { mutableStateOf("選取最近使用的 App") }
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -80,10 +81,7 @@ class MainActivity : ComponentActivity() {
                     Button(
                         onClick = {
                             if (hasUsageAccess()) pickerOpen = true
-                            else {
-                                status = "請在系統設定允許「使用情況存取」，才能顯示最近使用的 App"
-                                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                            }
+                            else usageAccessDialogOpen = true
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("選取最近使用的 App") }
@@ -105,6 +103,15 @@ class MainActivity : ComponentActivity() {
                 AppPicker(recentApps(), { pickerOpen = false }) { app ->
                     selected = app; pickerOpen = false; status = "已選取 ${app.label}"
                 }
+            }
+            if (usageAccessDialogOpen) {
+                UsageAccessDialog(
+                    onDismiss = { usageAccessDialogOpen = false },
+                    onGrant = {
+                        usageAccessDialogOpen = false
+                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    }
+                )
             }
         }
     }
@@ -168,5 +175,17 @@ private fun AppPicker(apps: List<TargetApp>, onDismiss: () -> Unit, onPick: (Tar
             }
         },
         confirmButton = { Button(onClick = onDismiss) { Text("取消") } }
+    )
+}
+@androidx.compose.runtime.Composable
+private fun UsageAccessDialog(onDismiss: () -> Unit, onGrant: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("允許讀取最近使用的 App") },
+        text = {
+            Text("Android 將「最近開啟的 App」清單視為系統資料。請在下一頁找到「螢幕擷取」並允許「使用情況存取」。完成後返回本 App，再點一次「選取最近使用的 App」。")
+        },
+        confirmButton = { Button(onClick = onGrant) { Text("前往授權") } },
+        dismissButton = { Button(onClick = onDismiss) { Text("取消") } }
     )
 }
