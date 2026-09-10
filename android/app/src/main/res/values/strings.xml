@@ -2,4 +2,5 @@
     <string name="app_name">螢幕擷取</string>
     <string name="capture_channel">螢幕擷取作業</string>
     <string name="capture_notification">正在準備擷取螢幕畫面</string>
+    <string name="capture_tile_label">擷取目前畫面</string>
 </resources>
