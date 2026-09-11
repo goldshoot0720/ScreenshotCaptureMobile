@@ -1,0 +1,24 @@
+# Android / Gradle
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/*.log
+local.properties
+
+# iOS / Xcode
+ios/*.xcodeproj/
+ios/DerivedData/
+*.xcworkspace/
+*.xcuserstate
+xcuserdata/
+
+# Secrets
+.env
+.env.*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+*.iml

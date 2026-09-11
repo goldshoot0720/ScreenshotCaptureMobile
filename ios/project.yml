@@ -1,0 +1,16 @@
+name: ScreenshotCapture
+options:
+  minimumXcodeGenVersion: 2.38.0
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.example.screenshotcapture
+    IPHONEOS_DEPLOYMENT_TARGET: 16.0
+targets:
+  ScreenshotCapture:
+    type: application
+    platform: iOS
+    sources: [ScreenshotCapture]
+    settings:
+      base:
+        INFOPLIST_FILE: ScreenshotCapture/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
