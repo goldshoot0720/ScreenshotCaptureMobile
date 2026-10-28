@@ -60,12 +60,23 @@ private val Muted = Color(0xFF6B5B8A)
 private val CaptureBrush = Brush.horizontalGradient(listOf(Pink, Purple))
 
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); setContent { CaptureHome() } }
+    private var accessibilityOn by mutableStateOf(false)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        accessibilityOn = ScrollAccessibilityService.isEnabled(this)
+        setContent { CaptureHome() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        accessibilityOn = ScrollAccessibilityService.isEnabled(this)
+    }
 
     @Composable
     private fun CaptureHome() {
         val context = this
-        var status by remember { mutableStateOf("啟用後可切換至任何畫面；懸浮按鈕會擷取整個螢幕。") }
+        var status by remember { mutableStateOf("啟用後可在任何畫面截圖，或自動捲動做長截圖。") }
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
@@ -90,7 +101,13 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Header()
                     StepsCard()
-                    ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示懸浮按鈕", R.drawable.ic_capture_shutter, CaptureBrush) {
+                    ActionButton(
+                        if (accessibilityOn) "無障礙服務已開啟" else "開啟無障礙服務",
+                        "長截圖用它自動向下捲動，不會讀取畫面內容",
+                        R.drawable.ic_screen,
+                        null
+                    ) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示五個按鈕", R.drawable.ic_capture_shutter, CaptureBrush) {
                         if (!Settings.canDrawOverlays(context)) {
                             status = "請允許「顯示在其他 App 上層」後，再點一次啟用。"
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -102,6 +119,7 @@ class MainActivity : ComponentActivity() {
                         status = "懸浮擷取按鈕已停用"
                     }
                     ActionButton("開啟截圖資料夾", "Pictures / Screenshot Capture", R.drawable.ic_saved, null) { openSystemScreenshotFolder() }
+                    StatusCard(if (accessibilityOn) "無障礙服務已開啟，可以長截圖。" else "長截圖尚未就緒：請先開啟無障礙服務。")
                     StatusCard(status)
                 }
             }
@@ -121,7 +139,7 @@ class MainActivity : ComponentActivity() {
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("螢幕擷取", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Text("一按就擷取目前畫面", fontSize = 15.sp, color = Muted)
+                Text("截圖、長截圖，按鈕留在畫面上", fontSize = 15.sp, color = Muted)
             }
         }
     }
@@ -135,10 +153,11 @@ class MainActivity : ComponentActivity() {
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Step(R.drawable.ic_permission, Purple, "先授權", "允許顯示在其他 App 上層，並同意系統螢幕擷取。")
-                Step(R.drawable.ic_screen, Pink, "再一按", "上方「擷取」存整個螢幕，下方「返回」回到本 App。")
-                Step(R.drawable.ic_success, Amber, "自動隱藏", "拍攝瞬間三顆懸浮按鈕都會自動隱藏，畫面乾淨。")
-                Step(R.drawable.ic_saved, Purple, "可拖曳", "按住任一顆按鈕即可拖到不擋畫面的位置，存檔結果會即時提示。")
+                Step(R.drawable.ic_permission, Purple, "先授權", "允許顯示在其他 App 上層，並同意系統螢幕擷取。長截圖還要開啟無障礙服務。")
+                Step(R.drawable.ic_capture_shutter, Pink, "截圖", "存下目前整個畫面。")
+                Step(R.drawable.ic_long_single, Purple, "長截圖（一張圖）", "自動向下捲動，去掉重疊的部分，接成一張長圖。")
+                Step(R.drawable.ic_long_multi, Amber, "長截圖（多張圖）", "同樣自動捲動，每一段各存成一張圖。")
+                Step(R.drawable.ic_settings, Purple, "懸浮列", "每個按鈕都有文字。按住可拖到旁邊，拍攝時會自動隱藏。設定回到這裡，關閉 APP 會結束程式。")
             }
         }
     }
