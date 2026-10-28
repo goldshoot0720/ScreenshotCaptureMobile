@@ -8,7 +8,6 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -105,7 +104,7 @@ class MainActivity : ComponentActivity() {
                             SamsungScrollCapture.SettingsTarget.SYSTEM -> "請到 進階功能 > 截圖與螢幕錄影，開啟「截圖後顯示工具列」。"
                         }
                     }
-                    ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示五個按鈕", R.drawable.ic_capture_shutter, CaptureBrush) {
+                    ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示六個按鈕", R.drawable.ic_capture_shutter, CaptureBrush) {
                         if (!Settings.canDrawOverlays(context)) {
                             status = "請允許「顯示在其他 App 上層」後，再點一次啟用。"
                             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -116,7 +115,7 @@ class MainActivity : ComponentActivity() {
                         startService(FloatingCaptureService.stopIntent(context))
                         status = "懸浮擷取按鈕已停用"
                     }
-                    ActionButton("開啟截圖資料夾", "Pictures / Screenshot Capture", R.drawable.ic_saved, null) { openSystemScreenshotFolder() }
+                    ActionButton("開啟截圖資料夾", "Pictures / Screenshot Capture", R.drawable.ic_folder, null) { openSystemScreenshotFolder() }
                     StatusCard(
                         if (samsung) "長截圖使用三星內建捲動擷取，不用開啟 TalkBack。"
                         else "這支手機沒有三星內建長截圖，截圖仍可使用。"
@@ -158,7 +157,9 @@ class MainActivity : ComponentActivity() {
                 Step(R.drawable.ic_capture_shutter, Pink, "截圖", "存下目前整個畫面。")
                 Step(R.drawable.ic_long_single, Purple, "長截圖（一張圖）", "先藏起懸浮按鈕，再交給三星內建長截圖。按音量下鍵＋電源鍵，長按工具列向下箭頭，一路捲到最底。")
                 Step(R.drawable.ic_long_multi, Amber, "長截圖（多張圖）", "同樣交給三星。按音量下鍵＋電源鍵後，逐次點工具列的向下箭頭，每一段各延伸一次。")
-                Step(R.drawable.ic_settings, Purple, "懸浮列", "每個按鈕都有文字。按住可拖到旁邊。長截圖會先把按鈕藏起來，通知裡可再顯示。設定回到這裡，關閉 APP 會結束程式。")
+                Step(R.drawable.ic_settings, Purple, "設定", "回到這個畫面。按住懸浮列可拖到旁邊。長截圖會先把按鈕藏起來，通知裡可再顯示。")
+                Step(R.drawable.ic_folder, Amber, "開啟截圖資料夾", "打開 Pictures / Screenshot Capture，查看已存的截圖。")
+                Step(R.drawable.ic_close_app, Pink, "關閉APP", "結束這個截圖程式，不會關掉你正在看的畫面。")
             }
         }
     }
@@ -233,8 +234,6 @@ class MainActivity : ComponentActivity() {
         checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
 
     private fun openSystemScreenshotFolder() {
-        val folder = DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_PROVIDER, "primary:Pictures/Screenshot Capture")
-        startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "image/*"; putExtra(DocumentsContract.EXTRA_INITIAL_URI, folder); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) })
+        startActivity(FloatingCaptureService.folderIntent())
     }
-    companion object { private const val EXTERNAL_STORAGE_PROVIDER = "com.android.externalstorage.documents" }
 }

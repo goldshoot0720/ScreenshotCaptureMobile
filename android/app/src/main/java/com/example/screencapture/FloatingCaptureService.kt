@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -22,6 +23,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -135,6 +137,7 @@ class FloatingCaptureService : Service() {
             Action(R.drawable.ic_long_single, "長截圖（一張圖）") { startCapture(Mode.LONG_ONE) },
             Action(R.drawable.ic_long_multi, "長截圖（多張圖）") { startCapture(Mode.LONG_MANY) },
             Action(R.drawable.ic_settings, "設定") { openSettings() },
+            Action(R.drawable.ic_folder, "開啟截圖資料夾") { openFolder() },
             Action(R.drawable.ic_close_app, "關閉APP") { closeApp() }
         )
         val view = LinearLayout(this).apply {
@@ -244,7 +247,7 @@ class FloatingCaptureService : Service() {
         if (!::windowManager.isInitialized) return
         val metrics = resources.displayMetrics
         val width = view.width.takeIf { it > 0 } ?: layout.width
-        val height = view.height.takeIf { it > 0 } ?: dp(260)
+        val height = view.height.takeIf { it > 0 } ?: dp(330)
         clusterX = x.coerceIn(0, (metrics.widthPixels - width).coerceAtLeast(0))
         clusterY = y.coerceIn(0, (metrics.heightPixels - height).coerceAtLeast(0))
         layout.x = clusterX
@@ -259,6 +262,14 @@ class FloatingCaptureService : Service() {
     private fun closeApp() {
         startActivity(Intent(this, ExitActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         shutdown()
+    }
+
+    private fun openFolder() {
+        try {
+            startActivity(folderIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: ActivityNotFoundException) {
+            toast("無法開啟截圖資料夾")
+        }
     }
 
     private fun startCapture(mode: Mode) {
@@ -452,6 +463,19 @@ class FloatingCaptureService : Service() {
         }
 
         fun stopIntent(context: Context) = Intent(context, FloatingCaptureService::class.java).setAction(ACTION_STOP)
+
+        fun folderIntent(): Intent {
+            val folder = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:Pictures/Screenshot Capture"
+            )
+            return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, folder)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+        }
     }
 }
 
