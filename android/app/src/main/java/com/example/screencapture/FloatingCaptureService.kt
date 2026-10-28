@@ -2,11 +2,11 @@ package com.example.screencapture
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -22,22 +22,17 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.SystemClock
-import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewOutlineProvider
-import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import kotlin.math.hypot
 
 class FloatingCaptureService : Service() {
@@ -55,6 +50,7 @@ class FloatingCaptureService : Service() {
     @Volatile private var capturing = false
     @Volatile private var stopping = false
     @Volatile private var captureGen = 0
+    private var restoreAction = false
     private var clusterX = 0
     private var clusterY = 0
     private var dragStartX = 0
@@ -64,12 +60,18 @@ class FloatingCaptureService : Service() {
     private var dragging = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            shutdown()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                shutdown()
+                return START_NOT_STICKY
+            }
+            ACTION_SHOW_PANEL -> {
+                showPanelAgain()
+                return START_STICKY
+            }
         }
         if (panel != null) {
-            toast("懸浮按鈕已在畫面上")
+            if (restoreAction) showPanelAgain() else toast("懸浮按鈕已在畫面上")
             return START_STICKY
         }
         val code = intent?.getIntExtra(EXTRA_RESULT, 0) ?: return START_NOT_STICKY
@@ -261,32 +263,43 @@ class FloatingCaptureService : Service() {
 
     private fun startCapture(mode: Mode) {
         if (capturing || stopping) return
-        if (mode != Mode.SCREEN && !scrollAvailable()) return
+        if (mode != Mode.SCREEN) {
+            handOffSamsung(mode)
+            return
+        }
         capturing = true
         val gen = ++captureGen
         setPanelHidden(true)
-        val (top, bottom) = systemBars()
         handler.postDelayed({
             if (!active(gen)) return@postDelayed
-            when (mode) {
-                Mode.SCREEN -> grabSingle(gen)
-                Mode.LONG_ONE -> Thread({ longCapture(gen, stitch = true, top, bottom) }, "long-capture").start()
-                Mode.LONG_MANY -> Thread({ longCapture(gen, stitch = false, top, bottom) }, "long-capture").start()
-            }
+            grabSingle(gen)
         }, HIDE_MILLIS)
     }
 
-    private fun scrollAvailable(): Boolean {
-        if (!ScrollAccessibilityService.isEnabled(this)) {
-            toast("長截圖需要開啟無障礙服務，才能自動捲動")
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            return false
+    /** Hides this panel, then hands the page to Samsung's built-in scroll capture. No TalkBack. */
+    private fun handOffSamsung(mode: Mode) {
+        if (!SamsungScrollCapture.isSamsung(this)) {
+            toast("這支手機沒有三星內建長截圖，改存目前畫面")
+            startCapture(Mode.SCREEN)
+            return
         }
-        if (ScrollAccessibilityService.instance == null) {
-            toast("無障礙服務尚未連線，請再開啟一次")
-            return false
+        setPanelHidden(true)
+        restoreAction = true
+        val detail = if (mode == Mode.LONG_ONE) {
+            "請按音量下鍵＋電源鍵，再長按工具列向下箭頭捲到底。不用開啟 TalkBack。完成後點「顯示按鈕」。"
+        } else {
+            "請按音量下鍵＋電源鍵，再逐次點工具列向下箭頭。不用開啟 TalkBack。完成後點「顯示按鈕」。"
         }
-        return true
+        notify(detail)
+        SamsungScrollCapture.tryLaunch(this)
+        toast(detail, long = true)
+    }
+
+    private fun showPanelAgain() {
+        if (stopping || panel == null) return
+        restoreAction = false
+        setPanelHidden(false)
+        notify("懸浮擷取按鈕已啟用")
     }
 
     private fun grabSingle(gen: Int, attempt: Int = 0) {
@@ -316,157 +329,6 @@ class FloatingCaptureService : Service() {
         }
     }
 
-    private fun longCapture(gen: Int, stitch: Boolean, topInset: Int, bottomInset: Int) {
-        var previous: Bitmap? = null
-        var stitcher: ScreenshotImages.Stitcher? = null
-        var pages = 1
-        var capped = false
-        var blocked = false
-        var knownFooter: Int? = null
-        var manySaved = 0
-        var previousSaved = false
-        val manyStamp = System.currentTimeMillis()
-        fun savePage(bitmap: Bitmap) {
-            manySaved++
-            mute()
-            ScreenshotImages.save(contentResolver, bitmap, "LongShot_${manyStamp}_%02d".format(manySaved))
-        }
-        try {
-            handler.post {
-                notify(if (stitch) "長截圖（一張圖）捲動中" else "長截圖（多張圖）捲動中")
-                toast("開始自動捲動，請先不要滑動畫面")
-            }
-            val first = awaitFrame(gen, null) ?: run {
-                if (active(gen)) handler.post { toast("畫面尚未就緒，請再試一次") }
-                return
-            }
-            previous = first
-            while (active(gen) && pages < MAX_PAGES) {
-                if (ScrollAccessibilityService.instance == null) {
-                    blocked = true
-                    break
-                }
-                if (!scrollOnce(gen)) break
-                val next = awaitFrame(gen, previous) ?: break
-                if (!active(gen)) {
-                    next.recycle()
-                    break
-                }
-                val join = ScreenshotImages.upwardShift(previous!!, next, topInset, bottomInset, knownFooter)
-                if (join.shift < 24) {
-                    next.recycle()
-                    break
-                }
-                if (knownFooter == null) knownFooter = join.footer
-                val current = previous
-                if (stitch) {
-                    val footer = knownFooter
-                    val built = stitcher ?: ScreenshotImages.Stitcher(current.width, bottomInset, footer).also { stitcher = it }
-                    if (!built.append(current, next, join.shift)) {
-                        next.recycle()
-                        capped = true
-                        break
-                    }
-                    previous = next
-                    if (current !== previous && !current.isRecycled) current.recycle()
-                } else {
-                    if (!previousSaved) {
-                        savePage(current)
-                        previousSaved = true
-                    }
-                    savePage(next)
-                    previous = next
-                    if (current !== previous && !current.isRecycled) current.recycle()
-                }
-                pages++
-                val shown = pages
-                handler.post { notify(if (stitch) "長截圖（一張圖）已接上 $shown 段" else "長截圖（多張圖）已擷取 $shown 張") }
-            }
-            if (!active(gen)) return
-            mute()
-            if (stitch) {
-                val last = previous ?: return
-                val output = stitcher?.finish(last) ?: last
-                ScreenshotImages.save(contentResolver, output, "LongShot_${System.currentTimeMillis()}")
-                if (output !== last) output.recycle()
-                handler.post {
-                    toast(when {
-                        blocked -> "無法自動捲動，已儲存目前畫面"
-                        capped -> "已到長度上限，長截圖已儲存"
-                        pages == 1 -> "這個畫面沒有繼續捲動，已儲存目前畫面"
-                        else -> "已儲存長截圖至 Pictures/Screenshot Capture"
-                    })
-                }
-            } else if (previous != null) {
-                if (!previousSaved) {
-                    mute()
-                    ScreenshotImages.save(contentResolver, previous, "Screenshot_$manyStamp")
-                }
-                handler.post {
-                    toast(when {
-                        blocked -> "無法自動捲動，已儲存目前畫面"
-                        manySaved <= 1 -> "這個畫面沒有繼續捲動，已儲存目前畫面"
-                        else -> "已儲存 $manySaved 張至 Pictures/Screenshot Capture"
-                    })
-                }
-            }
-        } catch (oom: OutOfMemoryError) {
-            if (active(gen)) handler.post { toast("長截圖太長，記憶體不足") }
-        } catch (failure: Exception) {
-            if (active(gen)) handler.post { toast("擷取失敗：${failure.message ?: "未知錯誤"}") }
-        } finally {
-            unmute()
-            previous?.let { if (!it.isRecycled) it.recycle() }
-            stitcher?.discard()
-            finishCapture(gen)
-        }
-    }
-
-    private fun awaitFrame(gen: Int, previous: Bitmap?): Bitmap? {
-        val attempts = if (previous == null) 8 else 7
-        val pause = if (previous == null) 80L else 130L
-        var last: Bitmap? = null
-        repeat(attempts) {
-            if (!active(gen)) {
-                last?.recycle()
-                return null
-            }
-            val image = reader?.acquireLatestImage()
-            if (image != null) {
-                val bitmap = ScreenshotImages.imageToBitmap(image)
-                image.close()
-                val prior = last
-                last = bitmap
-                if (previous == null || ScreenshotImages.regionDiff(previous, bitmap) > 12) {
-                    prior?.recycle()
-                    return bitmap
-                }
-                prior?.recycle()
-            }
-            SystemClock.sleep(pause)
-        }
-        return last
-    }
-
-    private fun scrollOnce(gen: Int): Boolean {
-        val service = ScrollAccessibilityService.instance ?: return false
-        val latch = CountDownLatch(1)
-        var ok = false
-        handler.post {
-            if (!active(gen)) {
-                latch.countDown()
-                return@post
-            }
-            service.scrollDown { done ->
-                ok = done
-                latch.countDown()
-            }
-        }
-        if (!latch.await(2, TimeUnit.SECONDS) || !ok || !active(gen)) return false
-        SystemClock.sleep(320)
-        return active(gen)
-    }
-
     private fun finishCapture(gen: Int) {
         handler.post {
             if (gen != captureGen || stopping) return@post
@@ -476,7 +338,7 @@ class FloatingCaptureService : Service() {
         }
     }
 
-    /** An invisible overlay still receives touches, so the auto-scroll gesture would hit this panel. */
+    /** An invisible overlay still receives touches and would be included in a system screenshot. */
     private fun setPanelHidden(hidden: Boolean) {
         val view = panel ?: return
         val layout = params ?: return
@@ -487,18 +349,6 @@ class FloatingCaptureService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         }
         if (::windowManager.isInitialized) windowManager.updateViewLayout(view, layout)
-    }
-
-    private fun systemBars(): Pair<Int, Int> {
-        if (Build.VERSION.SDK_INT >= 30 && ::windowManager.isInitialized) {
-            val bars = windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars())
-            return bars.top to bars.bottom
-        }
-        val statusId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        val navId = resources.getIdentifier("navigation_bar_height", "dimen", "android")
-        val top = if (statusId > 0) resources.getDimensionPixelSize(statusId) else dp(24)
-        val bottom = if (navId > 0) resources.getDimensionPixelSize(navId) else dp(48)
-        return top to bottom
     }
 
     private fun active(gen: Int) = gen == captureGen && !stopping
@@ -520,8 +370,9 @@ class FloatingCaptureService : Service() {
         }
     }
 
-    private fun toast(text: String) {
-        handler.post { if (!stopping) Toast.makeText(this, text, Toast.LENGTH_SHORT).show() }
+    private fun toast(text: String, long: Boolean = false) {
+        val length = if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+        handler.post { if (!stopping) Toast.makeText(this, text, length).show() }
     }
 
     private fun notify(text: String) {
@@ -560,12 +411,22 @@ class FloatingCaptureService : Service() {
     private fun notification(text: String): android.app.Notification {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, getString(R.string.capture_channel), NotificationManager.IMPORTANCE_LOW))
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setOngoing(true)
-            .build()
+        if (restoreAction) {
+            val show = PendingIntent.getService(
+                this,
+                0,
+                Intent(this, FloatingCaptureService::class.java).setAction(ACTION_SHOW_PANEL),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(R.drawable.ic_notification, "顯示按鈕", show)
+        }
+        return builder.build()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
@@ -579,11 +440,11 @@ class FloatingCaptureService : Service() {
         private const val HIDE_MILLIS = 320L
         private const val RETRY_MILLIS = 120L
         private const val MAX_ATTEMPTS = 4
-        private const val MAX_PAGES = 15
         private const val ROTATE_MILLIS = 400L
         private const val EXTRA_RESULT = "result"
         private const val EXTRA_DATA = "data"
         private const val ACTION_STOP = "stop"
+        private const val ACTION_SHOW_PANEL = "show_panel"
 
         fun startIntent(context: Context, result: Int, data: Intent) = Intent(context, FloatingCaptureService::class.java).apply {
             putExtra(EXTRA_RESULT, result)

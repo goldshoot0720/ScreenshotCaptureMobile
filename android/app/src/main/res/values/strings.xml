@@ -3,6 +3,4 @@
     <string name="capture_channel">螢幕擷取作業</string>
     <string name="capture_notification">正在準備擷取螢幕畫面</string>
     <string name="capture_tile_label">擷取目前畫面</string>
-    <string name="accessibility_label">螢幕擷取自動捲動</string>
-    <string name="accessibility_description">長截圖時在目前畫面上模擬向下滑動。此服務不會讀取畫面文字，也不會上傳任何內容。</string>
 </resources>
