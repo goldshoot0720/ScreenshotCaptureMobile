@@ -67,8 +67,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun CaptureHome() {
         val context = this
-        val samsung = remember { SamsungScrollCapture.isSamsung(context) }
-        var status by remember { mutableStateOf("啟用後可在任何畫面截圖。長截圖交給三星內建捲動擷取，不用開啟 TalkBack。") }
+        var status by remember { mutableStateOf("啟用後可在任何畫面截圖。長截圖用手指往下捲，由這個 App 接圖。") }
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
@@ -93,17 +92,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Header()
                     StepsCard()
-                    ActionButton(
-                        "開啟三星截圖設定",
-                        "開啟「截圖後顯示工具列」。長截圖不用 TalkBack。",
-                        R.drawable.ic_settings,
-                        null
-                    ) {
-                        status = when (SamsungScrollCapture.openSettings(context)) {
-                            SamsungScrollCapture.SettingsTarget.SAMSUNG -> "請確認「截圖後顯示工具列」已開啟。"
-                            SamsungScrollCapture.SettingsTarget.SYSTEM -> "請到 進階功能 > 截圖與螢幕錄影，開啟「截圖後顯示工具列」。"
-                        }
-                    }
                     ActionButton("啟用懸浮擷取按鈕", "授權後在任何畫面顯示六個按鈕", R.drawable.ic_capture_shutter, CaptureBrush) {
                         if (!Settings.canDrawOverlays(context)) {
                             status = "請允許「顯示在其他 App 上層」後，再點一次啟用。"
@@ -116,10 +104,7 @@ class MainActivity : ComponentActivity() {
                         status = "懸浮擷取按鈕已停用"
                     }
                     ActionButton("開啟截圖資料夾", "Pictures / Screenshot Capture", R.drawable.ic_folder, null) { openSystemScreenshotFolder() }
-                    StatusCard(
-                        if (samsung) "長截圖使用三星內建捲動擷取，不用開啟 TalkBack。"
-                        else "這支手機沒有三星內建長截圖，截圖仍可使用。"
-                    )
+                    StatusCard("長截圖由這個 App 接圖。用手指往下捲，不用按電源鍵，也不用開啟 TalkBack。")
                     StatusCard(status)
                 }
             }
@@ -139,7 +124,7 @@ class MainActivity : ComponentActivity() {
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("螢幕擷取", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Ink)
-                Text("截圖、三星長截圖，不用開啟 TalkBack", fontSize = 15.sp, color = Muted)
+                Text("截圖、長截圖，不用開啟 TalkBack", fontSize = 15.sp, color = Muted)
             }
         }
     }
@@ -153,10 +138,10 @@ class MainActivity : ComponentActivity() {
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Step(R.drawable.ic_permission, Purple, "先授權", "允許顯示在其他 App 上層，並同意系統螢幕擷取。請在三星設定開啟「截圖後顯示工具列」。不用開啟 TalkBack。")
+                Step(R.drawable.ic_permission, Purple, "先授權", "允許顯示在其他 App 上層，並同意系統螢幕擷取。不用開啟 TalkBack，也不用按電源鍵。")
                 Step(R.drawable.ic_capture_shutter, Pink, "截圖", "存下目前整個畫面。")
-                Step(R.drawable.ic_long_single, Purple, "長截圖（一張圖）", "先藏起懸浮按鈕，再交給三星內建長截圖。按音量下鍵＋電源鍵，長按工具列向下箭頭，一路捲到最底。")
-                Step(R.drawable.ic_long_multi, Amber, "長截圖（多張圖）", "同樣交給三星。按音量下鍵＋電源鍵後，逐次點工具列的向下箭頭，每一段各延伸一次。")
+                Step(R.drawable.ic_long_single, Purple, "長截圖（一張圖）", "藏起懸浮按鈕後，用手指慢慢往下捲，每次大約半個畫面。這個 App 會去掉重疊，接成一張長圖。完成後點通知的「完成」。")
+                Step(R.drawable.ic_long_multi, Amber, "長截圖（多張圖）", "同樣用手指往下捲，每一段各存成一張圖。完成後點通知的「完成」。")
                 Step(R.drawable.ic_settings, Purple, "設定", "回到這個畫面。按住懸浮列可拖到旁邊。長截圖會先把按鈕藏起來，通知裡可再顯示。")
                 Step(R.drawable.ic_folder, Amber, "開啟截圖資料夾", "打開 Pictures / Screenshot Capture，查看已存的截圖。")
                 Step(R.drawable.ic_close_app, Pink, "關閉APP", "結束這個截圖程式，不會關掉你正在看的畫面。")
